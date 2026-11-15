@@ -5,3 +5,4 @@ bundle:
 # Additional configuration files
 include:
   - targets.yml
+  - resources/*.yml
