@@ -1,4 +1,3 @@
-
 def calculate_late_fee(
     days_late: int,
     daily_fee: float = 0.50,

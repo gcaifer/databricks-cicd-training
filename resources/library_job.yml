@@ -1,0 +1,10 @@
+# Library loan processing job
+resources:
+  jobs:
+    library_job:
+      name: library-loan-processing
+
+      tasks:
+        - task_key: process_loans
+          notebook_task:
+            notebook_path: ../notebooks/process_loans.py
