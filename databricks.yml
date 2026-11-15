@@ -1,0 +1,10 @@
+
+# Bundle identification
+bundle:
+  name: library_bundle
+
+# Deployment targets
+targets:
+  dev:
+    default: true
+    mode: development
