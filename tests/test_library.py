@@ -1,4 +1,3 @@
-
 import pytest
 
 from src.library import calculate_late_fee
