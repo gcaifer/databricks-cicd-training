@@ -3,8 +3,6 @@
 bundle:
   name: library_bundle
 
-# Deployment targets
-targets:
-  dev:
-    default: true
-    mode: development
+# Additional configuration files
+include:
+  - targets.yml
