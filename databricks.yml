@@ -6,3 +6,9 @@ bundle:
 include:
   - targets.yml
   - resources/*.yml
+
+# Custom Bundle variables
+variables:
+  job_name:
+    description: Name of the library processing job
+    default: library-loan-processing
