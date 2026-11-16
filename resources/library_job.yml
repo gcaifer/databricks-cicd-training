@@ -2,7 +2,7 @@
 resources:
   jobs:
     library_job:
-      name: library-loan-processing
+      name: ${var.job_name}
 
       tasks:
         - task_key: process_loans

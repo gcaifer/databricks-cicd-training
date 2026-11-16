@@ -3,3 +3,10 @@ targets:
   dev:
     default: true
     mode: development
+
+    variables:
+      job_name: library-loan-processing-sandbox
+  
+  prod:
+    variables:
+      job_name: library-loan-processing
