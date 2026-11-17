@@ -12,3 +12,10 @@ variables:
   job_name:
     description: Name of the library processing job
     default: library-loan-processing
+
+# Files excluded from workspace synchronization
+sync:
+  exclude:
+    - .github/
+    - tests/
+    - requirements-dev.txt
