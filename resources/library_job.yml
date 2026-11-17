@@ -4,6 +4,11 @@ resources:
     library_job:
       name: ${var.job_name}
 
+      # Job metadata
+      tags:
+        project: library-training
+        environment: ${bundle.target}
+
       tasks:
         - task_key: process_loans
           notebook_task:
