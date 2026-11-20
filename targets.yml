@@ -6,7 +6,10 @@ targets:
 
     workspace:
       host: https://dbc-f27388b5-cde1.cloud.databricks.com
-  
+      
+    run_as:
+      service_principal_name: 47fda271-571c-411e-9e1d-cdabf8c8412c
+
     resources:
       jobs:
         library_job:
