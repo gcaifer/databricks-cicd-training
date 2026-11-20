@@ -33,3 +33,8 @@ jobs:
 
       - name: Plan Bundle as Service Principal
         run: databricks bundle plan -t dev
+
+      - name: Verify access to existing DEV Job
+        run: |
+          databricks jobs get 877967220525868 > /dev/null
+          echo "Existing DEV Job is accessible"
