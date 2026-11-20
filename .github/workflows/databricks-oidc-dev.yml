@@ -19,22 +19,26 @@ jobs:
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
 
     steps:
+      # 1. Download repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 2. Install Databricks CLI
       - name: Install Databricks CLI
         uses: databricks/setup-cli@main
 
+      # 3. Verify OIDC authentication
       - name: Verify authenticated identity
         run: databricks current-user me
 
+      # 4. Validate Bundle configuration
       - name: Validate Bundle as Service Principal
         run: databricks bundle validate -t dev
 
-      - name: Plan Bundle as Service Principal
-        run: databricks bundle plan -t dev
+      # 5. Bind existing Job (one-time migration)
+      - name: Bind existing DEV Job
+        run: databricks bundle deployment bind library_job 877967220525868 -t dev --auto-approve
 
-      - name: Verify access to existing DEV Job
-        run: |
-          databricks jobs get 877967220525868 > /dev/null
-          echo "Existing DEV Job is accessible"
+      # 6. Inspect planned changes
+      - name: Plan Bundle after binding
+        run: databricks bundle plan -t dev
