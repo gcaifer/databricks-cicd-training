@@ -2,14 +2,24 @@ name: Databricks OIDC DEV Test
 
 on:
   workflow_dispatch:
+    inputs:
+      deploy_dev:
+        description: "Apply deployment to DEV?"
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
   id-token: write
 
+concurrency:
+  group: databricks-deploy-dev
+  cancel-in-progress: false
+
 jobs:
   test-oidc:
-    name: Test Databricks OIDC Authentication
+    name: Validate and Deploy DEV
     runs-on: ubuntu-latest
     environment: dev
 
@@ -28,11 +38,38 @@ jobs:
       - name: Verify authenticated identity
         run: databricks current-user me
 
-      - name: Validate Bundle as Service Principal
+      - name: Validate Bundle
         run: databricks bundle validate -t dev
 
-      - name: Show Bundle Resources
-        run: databricks bundle summary -t dev
+      - name: Verify existing Job binding
+        run: |
+          databricks bundle summary -t dev | tee bundle-summary.txt
+          grep -q '/jobs/877967220525868' bundle-summary.txt
 
-      - name: Plan Bundle as Service Principal
-        run: databricks bundle plan -t dev
+      - name: Plan Bundle
+        run: |
+          set -o pipefail
+          databricks bundle plan -t dev | tee bundle-plan.txt
+
+          if grep -Eq '^(create|delete) jobs\.library_job$' bundle-plan.txt; then
+            echo "Unexpected Job creation or deletion!"
+            exit 1
+          fi
+
+      - name: Deploy Bundle to DEV
+        if: ${{ inputs.deploy_dev }}
+        run: databricks bundle deploy -t dev
+
+      - name: Verify deployed Job
+        if: ${{ inputs.deploy_dev }}
+        run: |
+          databricks bundle summary -t dev
+          databricks jobs get 877967220525868 -o json |
+            jq '{
+              job_id,
+              creator_user_name,
+              run_as_user_name,
+              name: .settings.name,
+              notebook: .settings.tasks[0].notebook_task.notebook_path,
+              deployment: .settings.deployment
+            }'
