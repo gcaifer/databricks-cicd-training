@@ -30,3 +30,6 @@ jobs:
 
       - name: Validate Bundle as Service Principal
         run: databricks bundle validate -t dev
+
+      - name: Plan Bundle as Service Principal
+        run: databricks bundle plan -t dev
