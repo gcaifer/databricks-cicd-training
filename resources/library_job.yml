@@ -2,7 +2,7 @@
 resources:
   jobs:
     library_job:
-      name: ${var.job_name}
+      name: library-loan-processing
 
       # Job metadata
       tags:
