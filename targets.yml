@@ -10,13 +10,6 @@ targets:
     run_as:
       service_principal_name: 47fda271-571c-411e-9e1d-cdabf8c8412c
 
-    resources:
-      jobs:
-        library_job:
-          permissions:
-            - service_principal_name: "47fda271-571c-411e-9e1d-cdabf8c8412c"
-              level: CAN_MANAGE
-
   prod:
     workspace:
       host: https://dbc-bfd5635e-3885.cloud.databricks.com
