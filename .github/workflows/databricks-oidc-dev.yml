@@ -27,3 +27,6 @@ jobs:
 
       - name: Verify authenticated identity
         run: databricks current-user me
+
+      - name: Validate Bundle as Service Principal
+        run: databricks bundle validate -t dev
