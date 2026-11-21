@@ -93,3 +93,27 @@ jobs:
             databricks.yml \
             targets.yml \
             resources/*.yml
+
+      - name: Validate Bundle target modes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+
+          config = yaml.safe_load(
+              Path("targets.yml").read_text(encoding="utf-8")
+          )
+
+          allowed_modes = {"development", "production"}
+
+          for target_name, target_config in config["targets"].items():
+              mode = target_config.get("mode")
+
+              if mode is not None and mode not in allowed_modes:
+                  raise ValueError(
+                      f"Invalid mode for target '{target_name}': "
+                      f"{mode!r}. Expected: development or production."
+                  )
+
+          print("Bundle target modes: OK")
+          PY
