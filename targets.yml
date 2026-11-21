@@ -2,7 +2,7 @@
 targets:
   dev:
     default: true
-    mode: invalid-mode
+    mode: development
 
     workspace:
       host: https://dbc-f27388b5-cde1.cloud.databricks.com
