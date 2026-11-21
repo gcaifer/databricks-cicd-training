@@ -31,3 +31,19 @@ jobs:
 
       - name: Run unit tests
         run: python -m pytest -q
+
+  bundle-validation:
+    name: Bundle Validation
+    runs-on: ubunty-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+        with:
+          version: 1.26.0
+
+      - name: Validate DEV Bundle
+        run: databricks bundle validate -t dev`
