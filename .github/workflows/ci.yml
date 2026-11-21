@@ -31,3 +31,89 @@ jobs:
 
       - name: Run unit tests
         run: python -m pytest -q
+
+  bundle-validation:
+    name: Bundle YAML Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install validation dependencies
+        run: python -m pip install PyYAML check-jsonschema
+
+      - name: Check Bundle YAML syntax
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+
+          paths = [
+              Path("databricks.yml"),
+              Path("targets.yml"),
+              *sorted(Path("resources").glob("*.yml")),
+          ]
+
+          if len(paths) < 3:
+              raise ValueError("Bundle resource YAML files not found")
+
+          for path in paths:
+              with path.open(encoding="utf-8") as file:
+                  data = yaml.safe_load(file)
+
+              if not isinstance(data, dict):
+                  raise ValueError(
+                      f"{path}: expected a YAML mapping"
+                  )
+
+              print(f"OK: {path}")
+
+          print("Bundle YAML syntax checks passed!")
+          PY
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+        with:
+          version: 1.26.0
+
+      - name: Generate Databricks Bundle Schema
+        run: |
+          databricks bundle schema > "$RUNNER_TEMP/databricks-bundle-schema.json"
+
+      - name: Validate Bundle against JSON Schema
+        run: |
+          check-jsonschema \
+            --schemafile "$RUNNER_TEMP/databricks-bundle-schema.json" \
+            databricks.yml \
+            targets.yml \
+            resources/*.yml
+
+      - name: Validate Bundle target modes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+
+          config = yaml.safe_load(
+              Path("targets.yml").read_text(encoding="utf-8")
+          )
+
+          allowed_modes = {"development", "production"}
+
+          for target_name, target_config in config["targets"].items():
+              mode = target_config.get("mode")
+
+              if mode is not None and mode not in allowed_modes:
+                  raise ValueError(
+                      f"Invalid mode for target '{target_name}': "
+                      f"{mode!r}. Expected: development or production."
+                  )
+
+          print("Bundle target modes: OK")
+          PY
