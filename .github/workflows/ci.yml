@@ -34,7 +34,7 @@ jobs:
 
   bundle-validation:
     name: Bundle Validation
-    runs-on: ubunty-latest
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
@@ -46,4 +46,4 @@ jobs:
           version: 1.26.0
 
       - name: Validate DEV Bundle
-        run: databricks bundle validate -t dev`
+        run: databricks bundle validate -t dev
