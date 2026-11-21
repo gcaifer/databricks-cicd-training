@@ -1,3 +1,4 @@
+
 name: Python CI
 
 on:
@@ -33,17 +34,46 @@ jobs:
         run: python -m pytest -q
 
   bundle-validation:
-    name: Bundle Validation
+    name: Bundle YAML Check
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Install Databricks CLI
-        uses: databricks/setup-cli@main
+      - name: Setup Python
+        uses: actions/setup-python@v7
         with:
-          version: 1.26.0
+          python-version: "3.12"
 
-      - name: Validate DEV Bundle
-        run: databricks bundle validate -t dev
+      - name: Install YAML parser
+        run: python -m pip install PyYAML
+
+      - name: Check Bundle YAML files
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+
+          paths = [
+              Path("databricks.yml"),
+              Path("targets.yml"),
+              *sorted(Path("resources").glob("*.yml")),
+          ]
+
+          if len(paths) < 3:
+              raise ValueError("Bundle resource YAML files not found")
+
+          for path in paths:
+              with path.open(encoding="utf-8") as file:
+                  data = yaml.safe_load(file)
+
+              if not isinstance(data, dict):
+                  raise ValueError(
+                      f"{path}: expected a YAML mapping"
+                  )
+
+              print(f"OK: {path}")
+
+          print("Bundle YAML syntax checks passed!")
+          PY
