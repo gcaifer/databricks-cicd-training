@@ -137,6 +137,39 @@ jobs:
             exit 1
           fi
 
+      - name: Deploy Bundle to DEV
+        env:
+          APPROVED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          checkout_sha="$(git rev-parse HEAD)"
+          current_sha="$(git ls-remote origin refs/heads/main | cut -f1)"
+
+          if [ "$checkout_sha" != "$APPROVED_SHA" ] ||
+             [ "$current_sha" != "$APPROVED_SHA" ]; then
+            echo "Deployment blocked: commit is not current main"
+            echo "Approved: $APPROVED_SHA"
+            echo "Checkout: $checkout_sha"
+            echo "Current:  $current_sha"
+            exit 1
+          fi
+
+          echo "Commit verified immediately before deployment"
+          databricks bundle deploy -t dev
+
+      - name: Verify deployed Job
+        run: |
+          set -euo pipefail
+
+          databricks bundle summary -t dev | tee bundle-summary.txt
+          grep -q '/jobs/877967220525868' bundle-summary.txt
+
+          databricks jobs get 877967220525868 -o json |
+            jq -e '.job_id == 877967220525868'
+
+          echo "Existing DEV Job verified successfully"
+
   test-oidc:
     name: Validate and Deploy DEV
 
