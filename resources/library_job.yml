@@ -8,6 +8,7 @@ resources:
       tags:
         project: library-training
         environment: ${bundle.target}
+        automation_test: "ci-cd"
 
       tasks:
         - task_key: process_loans
