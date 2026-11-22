@@ -88,6 +88,28 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
 
+      - name: Verify approved commit is still main
+        env:
+          APPROVED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          current_sha="$(git ls-remote origin refs/heads/main | cut -f1)"
+
+          if [ -z "$current_sha" ]; then
+            echo "Could not determine current main SHA"
+            exit 1
+          fi
+
+          if [ "$current_sha" != "$APPROVED_SHA" ]; then
+            echo "A newer commit exists on main. Deployment blocked."
+            echo "Approved: $APPROVED_SHA"
+            echo "Current:  $current_sha"
+            exit 1
+          fi
+
+          echo "Approved commit is current main: $APPROVED_SHA"
+
       - name: Install Databricks CLI
         uses: databricks/setup-cli@main
 
@@ -96,6 +118,24 @@ jobs:
 
       - name: Validate Bundle DEV
         run: databricks bundle validate -t dev
+
+      - name: Verify existing Job binding
+        run: |
+          set -euo pipefail
+
+          databricks bundle summary -t dev | tee bundle-summary.txt
+          grep -q '/jobs/877967220525868' bundle-summary.txt
+
+      - name: Plan Bundle DEV
+        run: |
+          set -euo pipefail
+
+          databricks bundle plan -t dev | tee bundle-plan.txt
+
+          if grep -Eq '^(create|delete) jobs\.library_job$' bundle-plan.txt; then
+            echo "Unexpected Job creation or deletion!"
+            exit 1
+          fi
 
   test-oidc:
     name: Validate and Deploy DEV
