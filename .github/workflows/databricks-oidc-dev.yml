@@ -58,6 +58,45 @@ jobs:
 
           echo "CI-approved commit verified: $actual_sha"
 
+  validate-dev:
+    name: Validate DEV after CI
+
+    needs: verify-ci
+
+    if: >-
+      ${{
+        github.event_name == 'workflow_run' &&
+        needs.verify-ci.result == 'success'
+      }}
+
+    runs-on: ubuntu-latest
+    environment: dev
+
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+
+    steps:
+      - name: Checkout CI-approved commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Verify authenticated identity
+        run: databricks current-user me
+
+      - name: Validate Bundle DEV
+        run: databricks bundle validate -t dev
+
   test-oidc:
     name: Validate and Deploy DEV
 
