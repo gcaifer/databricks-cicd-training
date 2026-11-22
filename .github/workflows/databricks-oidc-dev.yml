@@ -9,17 +9,64 @@ on:
         required: true
         default: false
 
+  workflow_run:
+    workflows: ["Python CI"]
+    types: [completed]
+    branches: [main]
+
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: databricks-deploy-dev
   cancel-in-progress: false
 
 jobs:
+  verify-ci:
+    name: Verify CI for DEV
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    if: >-
+      ${{
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.head_repository.full_name == github.repository
+      }}
+
+    steps:
+      - name: Checkout CI-approved commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - name: Verify commit SHA
+        env:
+          APPROVED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          actual_sha="$(git rev-parse HEAD)"
+
+          if [ "$actual_sha" != "$APPROVED_SHA" ]; then
+            echo "Checkout does not match CI-approved commit!"
+            exit 1
+          fi
+
+          echo "CI-approved commit verified: $actual_sha"
+
   test-oidc:
     name: Validate and Deploy DEV
+
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+
+    permissions:
+      contents: read
+      id-token: write
+
     runs-on: ubuntu-latest
     environment: dev
 
