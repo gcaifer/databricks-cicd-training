@@ -7,12 +7,20 @@ permissions: {}
 
 jobs:
   approval-test:
-    name: Verify PROD approval
+    name: Verify PROD OIDC
 
     if: github.ref == 'refs/heads/main'
 
     runs-on: ubuntu-latest
     environment: prod
+
+    permissions:
+      id-token: write
+
+    env:
+      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
 
     steps:
       - name: Confirm approval
@@ -20,3 +28,18 @@ jobs:
           echo "PROD environment approval confirmed"
           echo "Git reference: $GITHUB_REF"
           echo "Commit SHA: $GITHUB_SHA"
+
+      - name: Verify PROD workspace
+        run: |
+          if [ "$DATABRICKS_HOST" != "https://dbc-bfd5635e-3885.cloud.databricks.com" ]; then
+            echo "Incorrect PROD workspace!"
+            exit 1
+          fi
+
+          echo "PROD workspace verified"
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Verify authenticated identity
+        run: databricks current-user me
