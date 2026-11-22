@@ -1,0 +1,22 @@
+name: PROD Approval Gate Test
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  approval-test:
+    name: Verify PROD approval
+
+    if: github.ref == 'refs/heads/main'
+
+    runs-on: ubuntu-latest
+    environment: prod
+
+    steps:
+      - name: Confirm approval
+        run: |
+          echo "PROD environment approval confirmed"
+          echo "Git reference: $GITHUB_REF"
+          echo "Commit SHA: $GITHUB_SHA"
