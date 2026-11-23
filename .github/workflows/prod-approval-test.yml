@@ -29,6 +29,23 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Verify checkout SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          checkout_sha="$(git rev-parse HEAD)"
+
+          echo "Event SHA: $GITHUB_SHA"
+          echo "Checkout SHA: $checkout_sha"
+
+          if [ "$checkout_sha" != "$GITHUB_SHA" ]; then
+            echo "Checkout SHA mismatch!"
+            exit 1
+          fi
+
+          echo "Checkout SHA verified successfully"
+
       - name: Confirm approval
         run: |
           echo "PROD environment approval confirmed"
