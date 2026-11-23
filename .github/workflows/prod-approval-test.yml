@@ -15,6 +15,7 @@ jobs:
     environment: prod
 
     permissions:
+      contents: read
       id-token: write
 
     env:
@@ -23,6 +24,11 @@ jobs:
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
       - name: Confirm approval
         run: |
           echo "PROD environment approval confirmed"
@@ -43,3 +49,11 @@ jobs:
 
       - name: Verify authenticated identity
         run: databricks current-user me
+
+      - name: Validate Bundle PROD
+        run: |
+          set -euo pipefail
+
+          databricks bundle validate -t prod
+
+          echo "PROD Bundle validation completed successfully"
