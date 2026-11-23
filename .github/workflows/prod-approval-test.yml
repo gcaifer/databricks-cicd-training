@@ -48,7 +48,7 @@ jobs:
         uses: databricks/setup-cli@main
 
       - name: Verify authenticated identity
-        run: databricks current-user me
+        run: databricks current-user me -t prod
 
       - name: Validate Bundle PROD
         run: |
