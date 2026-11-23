@@ -8,8 +8,13 @@ targets:
       host: https://dbc-f27388b5-cde1.cloud.databricks.com
       
     run_as:
-      service_principal_name: 47fda271-571c-411e-9e1d-cdabf8c8412c
+      service_principal_name: "47fda271-571c-411e-9e1d-cdabf8c8412c"
 
   prod:
+    mode: production
+
     workspace:
       host: https://dbc-bfd5635e-3885.cloud.databricks.com
+
+    run_as:
+      service_principal_name: "955ab031-e401-40f1-84a4-aa24ea11d66a"
