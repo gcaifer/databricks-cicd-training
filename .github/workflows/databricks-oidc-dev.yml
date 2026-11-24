@@ -232,3 +232,48 @@ jobs:
               notebook: .settings.tasks[0].notebook_task.notebook_path,
               deployment: .settings.deployment
             }'
+
+      - name: Generate DEV deployment evidence
+        env:
+          APPROVED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          checkout_sha="$(git rev-parse HEAD)"
+
+          if [ "$checkout_sha" != "$APPROVED_SHA" ]; then
+            echo "Deployment evidence SHA mismatch!"
+            exit 1
+          fi
+
+          jq -n \
+            --arg environment "dev" \
+            --arg commit_sha "$APPROVED_SHA" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
+            --arg deployment_status "success" \
+            --argjson databricks_job_id 877967220525868 \
+            '{
+              environment: $environment,
+              commit_sha: $commit_sha,
+              run_id: $run_id,
+              run_attempt: $run_attempt,
+              deployment_status: $deployment_status,
+              databricks_job_id: $databricks_job_id
+            }' > dev-deployment.json
+
+          jq -e \
+            '.environment == "dev" and
+             .deployment_status == "success" and
+             (.commit_sha | length == 40)' \
+            dev-deployment.json
+
+          echo "DEV deployment evidence generated successfully"
+
+      - name: Upload DEV deployment evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-deployment-evidence
+          path: dev-deployment.json
+          if-no-files-found: error
+          retention-days: 30
