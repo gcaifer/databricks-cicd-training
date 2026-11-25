@@ -294,3 +294,62 @@ jobs:
 
           echo "DEV deployment evidence validated successfully"
           echo "Approved SHA: $approved_sha"
+
+  deploy-prod:
+    name: Deploy Bundle to PROD
+
+    needs: verify-dev
+
+    runs-on: ubuntu-latest
+    environment: prod
+
+    permissions:
+      contents: read
+
+    env:
+      APPROVED_SHA: ${{ needs.verify-dev.outputs.approved_sha }}
+
+    steps:
+      - name: Verify approved SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$APPROVED_SHA" =~ ^[a-f0-9]{40}$ ]]; then
+            echo "Invalid approved SHA"
+            exit 1
+          fi
+
+          if [ "$APPROVED_SHA" != "$GITHUB_SHA" ]; then
+            echo "Approved SHA does not match workflow SHA"
+            exit 1
+          fi
+
+          echo "Approved SHA received: $APPROVED_SHA"
+
+      - name: Checkout approved commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.verify-dev.outputs.approved_sha }}
+          persist-credentials: false
+
+      - name: Verify approved commit is still main
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          checkout_sha="$(git rev-parse HEAD)"
+          current_sha="$(git ls-remote origin refs/heads/main | cut -f1)"
+
+          echo "Approved SHA: $APPROVED_SHA"
+          echo "Checkout SHA: $checkout_sha"
+          echo "Current main: $current_sha"
+
+          if [ "$checkout_sha" != "$APPROVED_SHA" ] ||
+             [ "$current_sha" != "$APPROVED_SHA" ]; then
+
+            echo "PROD promotion blocked: SHA mismatch"
+            exit 1
+          fi
+
+          echo "Approved PROD commit verified successfully"
