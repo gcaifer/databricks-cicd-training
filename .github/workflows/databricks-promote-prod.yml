@@ -1,0 +1,296 @@
+name: Promote DEV to PROD
+
+on:
+  workflow_dispatch:
+    inputs:
+      dev_run_id:
+        description: "Successful DEV deployment workflow run ID"
+        required: true
+        type: string
+
+      candidate_sha:
+        description: "Commit SHA to promote to PROD"
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  verify-dev:
+    name: Verify DEV deployment eligibility
+
+    runs-on: ubuntu-latest
+
+    outputs:
+      approved_sha: ${{ steps.validate-evidence.outputs.approved_sha }}
+
+    permissions:
+      actions: read
+      contents: read
+
+    steps:
+      - name: Validate promotion inputs
+        env:
+          DEV_RUN_ID: ${{ inputs.dev_run_id }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Promotion must originate from main"
+            exit 1
+          fi
+
+          if [[ ! "$DEV_RUN_ID" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Invalid DEV workflow run ID"
+            exit 1
+          fi
+
+          if [[ ! "$CANDIDATE_SHA" =~ ^[a-f0-9]{40}$ ]]; then
+            echo "Invalid candidate commit SHA"
+            exit 1
+          fi
+
+          if [ "$CANDIDATE_SHA" != "$GITHUB_SHA" ]; then
+            echo "Candidate SHA does not match workflow SHA"
+            exit 1
+          fi
+
+          echo "Promotion inputs validated successfully"
+          echo "DEV Run ID: $DEV_RUN_ID"
+          echo "Candidate SHA: $CANDIDATE_SHA"
+
+      - name: Verify DEV workflow run
+        id: verify-run
+
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEV_RUN_ID: ${{ inputs.dev_run_id }}
+
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gh api \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$DEV_RUN_ID" \
+            > dev-run.json
+
+          if ! jq -e \
+            --arg run_id "$DEV_RUN_ID" \
+            --arg repository "$GITHUB_REPOSITORY" \
+            '
+              (.id | tostring) == $run_id and
+              .workflow_id == 424563001 and
+              .path == ".github/workflows/databricks-oidc-dev.yml" and
+              .repository.full_name == $repository and
+              .head_repository.full_name == $repository and
+              .event == "workflow_run" and
+              .head_branch == "main" and
+              .status == "completed" and
+              .conclusion == "success"
+            ' dev-run.json > /dev/null; then
+
+            echo "DEV workflow run is not eligible for promotion"
+            exit 1
+          fi
+
+          run_attempt="$(jq -er '.run_attempt' dev-run.json)"
+
+          if [[ ! "$run_attempt" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Invalid DEV workflow run attempt"
+            exit 1
+          fi
+
+          echo "run_attempt=$run_attempt" >> "$GITHUB_OUTPUT"
+
+          echo "DEV workflow run verified successfully"
+          echo "DEV Run ID: $DEV_RUN_ID"
+          echo "DEV Run attempt: $run_attempt"
+
+      - name: Verify DEV deployment jobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEV_RUN_ID: ${{ inputs.dev_run_id }}
+          DEV_RUN_ATTEMPT: ${{ steps.verify-run.outputs.run_attempt }}
+
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$DEV_RUN_ID/attempts/$DEV_RUN_ATTEMPT/jobs?per_page=100" \
+            > dev-jobs-pages.json
+
+          jq '[.[].jobs[]]' dev-jobs-pages.json > dev-jobs.json
+
+          if ! jq -e '
+            def successful_job($name):
+              [.[] | select(.name == $name)] |
+              length == 1 and
+              .[0].status == "completed" and
+              .[0].conclusion == "success";
+
+            successful_job("Verify CI for DEV") and
+            successful_job("Validate DEV after CI")
+          ' dev-jobs.json > /dev/null; then
+
+            echo "Required DEV jobs did not complete successfully"
+            exit 1
+          fi
+
+          echo "Required DEV jobs verified successfully"
+
+      - name: Verify DEV deployment steps
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! jq -e '
+            def successful_step($name):
+              [.steps[] | select(.name == $name)] |
+              length == 1 and
+              .[0].status == "completed" and
+              .[0].conclusion == "success";
+
+            .[] |
+            select(.name == "Validate DEV after CI") |
+
+            successful_step("Checkout CI-approved commit") and
+            successful_step("Verify approved commit is still main") and
+            successful_step("Validate Bundle DEV") and
+            successful_step("Verify existing Job binding") and
+            successful_step("Plan Bundle DEV") and
+            successful_step("Deploy Bundle to DEV") and
+            successful_step("Verify deployed Job") and
+            successful_step("Generate DEV deployment evidence") and
+            successful_step("Upload DEV deployment evidence")
+          ' dev-jobs.json > /dev/null; then
+
+            echo "Required DEV deployment steps did not complete successfully"
+            exit 1
+          fi
+
+          echo "Required DEV deployment steps verified successfully"
+
+      - name: Locate DEV deployment evidence
+        id: locate-evidence
+
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEV_RUN_ID: ${{ inputs.dev_run_id }}
+
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$DEV_RUN_ID/artifacts?per_page=100" \
+            > dev-artifacts-pages.json
+
+          jq '
+            [.[].artifacts[] |
+              select(.name == "dev-deployment-evidence")]
+          ' dev-artifacts-pages.json > dev-artifacts.json
+
+          if ! jq -e '
+            length == 1 and
+            .[0].expired == false and
+            .[0].size_in_bytes > 0 and
+            (.[0].digest | test("^sha256:[a-f0-9]{64}$"))
+          ' dev-artifacts.json > /dev/null; then
+
+            echo "Invalid or unavailable DEV deployment evidence"
+            exit 1
+          fi
+
+          artifact_id="$(jq -er '.[0].id' dev-artifacts.json)"
+          artifact_digest="$(jq -er '.[0].digest' dev-artifacts.json)"
+
+          echo "artifact_id=$artifact_id" >> "$GITHUB_OUTPUT"
+          echo "artifact_digest=$artifact_digest" >> "$GITHUB_OUTPUT"
+
+          echo "DEV deployment evidence located successfully"
+          echo "Artifact ID: $artifact_id"
+          echo "Artifact digest: $artifact_digest"
+
+      - name: Download and verify DEV deployment evidence
+
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.locate-evidence.outputs.artifact_id }}
+          EXPECTED_DIGEST: ${{ steps.locate-evidence.outputs.artifact_digest }}
+
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          curl --fail --silent --show-error --location \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" \
+            --output dev-deployment-evidence.zip
+
+          actual_hash="$(sha256sum dev-deployment-evidence.zip | cut -d' ' -f1)"
+          actual_digest="sha256:$actual_hash"
+
+          echo "Expected digest: $EXPECTED_DIGEST"
+          echo "Actual digest:   $actual_digest"
+
+          if [ "$actual_digest" != "$EXPECTED_DIGEST" ]; then
+            echo "DEV deployment evidence integrity check failed"
+            exit 1
+          fi
+
+          echo "DEV deployment evidence downloaded and verified successfully"
+
+      - name: Validate DEV deployment evidence
+        id: validate-evidence
+
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          DEV_RUN_ID: ${{ inputs.dev_run_id }}
+          DEV_RUN_ATTEMPT: ${{ steps.verify-run.outputs.run_attempt }}
+
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          archive_contents="$(unzip -Z1 dev-deployment-evidence.zip)"
+
+          if [ "$archive_contents" != "dev-deployment.json" ]; then
+            echo "Unexpected deployment evidence archive contents"
+            exit 1
+          fi
+
+          unzip -p dev-deployment-evidence.zip \
+            dev-deployment.json > dev-deployment.json
+
+          if ! jq -e -s \
+            --arg candidate_sha "$CANDIDATE_SHA" \
+            --arg run_id "$DEV_RUN_ID" \
+            --arg run_attempt "$DEV_RUN_ATTEMPT" \
+            '
+              length == 1 and
+              (.[0] |
+                type == "object" and
+                .environment == "dev" and
+                .commit_sha == $candidate_sha and
+                .run_id == $run_id and
+                .run_attempt == $run_attempt and
+                .deployment_status == "success" and
+                .databricks_job_id == 877967220525868
+              )
+            ' dev-deployment.json > /dev/null; then
+
+            echo "DEV deployment evidence validation failed"
+            exit 1
+          fi
+
+          approved_sha="$(jq -er '.commit_sha' dev-deployment.json)"
+
+          echo "approved_sha=$approved_sha" >> "$GITHUB_OUTPUT"
+
+          echo "DEV deployment evidence validated successfully"
+          echo "Approved SHA: $approved_sha"
