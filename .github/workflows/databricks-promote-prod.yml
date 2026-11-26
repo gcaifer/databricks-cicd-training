@@ -488,7 +488,56 @@ jobs:
         run: |
           set -euo pipefail
 
-          databricks bundle plan -t prod |
-            tee "$RUNNER_TEMP/prod-bundle-plan.txt"
+          plan_file="$RUNNER_TEMP/prod-bundle-plan.json"
+
+          databricks bundle plan -t prod -o json \
+            > "$plan_file"
+
+          jq -e '
+            {
+              plan_version,
+              operations: (.plan | map_values(.action))
+            }
+          ' "$plan_file"
 
           echo "PROD Bundle planning completed successfully"
+
+      - name: Verify PROD deployment plan
+        env:
+          PROD_DEPLOYMENT_PHASE: bootstrap
+
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          plan_file="$RUNNER_TEMP/prod-bundle-plan.json"
+
+          if ! jq -e -s \
+            --arg phase "$PROD_DEPLOYMENT_PHASE" \
+            '
+              length == 1 and
+              (.[0] |
+                .plan_version == 2 and
+                (.plan |
+                  type == "object" and
+                  keys == ["resources.jobs.library_job"] and
+                  (
+                    .["resources.jobs.library_job"].action as $action |
+                    if $phase == "bootstrap" then
+                      $action == "create"
+                    elif $phase == "maintenance" then
+                      ($action == "update" or $action == "skip")
+                    else
+                      false
+                    end
+                  )
+                )
+              )
+            ' "$plan_file" > /dev/null; then
+
+            echo "Unexpected PROD deployment plan!"
+            exit 1
+          fi
+
+          echo "PROD deployment plan verified successfully"
+          echo "Deployment phase: $PROD_DEPLOYMENT_PHASE"
