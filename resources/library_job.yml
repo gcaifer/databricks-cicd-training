@@ -3,6 +3,7 @@ resources:
   jobs:
     library_job:
       name: library-loan-processing
+      description: "Library loan processing managed by an automated CI/CD promotion pipeline."
 
       # Job metadata
       tags:

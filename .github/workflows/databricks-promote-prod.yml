@@ -320,7 +320,8 @@ jobs:
       DATABRICKS_AUTH_TYPE: github-oidc
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
-      PROD_DEPLOYMENT_PHASE: bootstrap
+      PROD_DEPLOYMENT_PHASE: maintenance
+      EXPECTED_PROD_JOB_ID: "218012131264427"
 
     steps:
       - name: Verify approved SHA
@@ -553,18 +554,20 @@ jobs:
 
           echo "plan_digest=$plan_digest" >> "$GITHUB_OUTPUT"
 
-      - name: Verify PROD Job conflicts
+      - name: Verify existing PROD Job and Bundle binding
         shell: bash
         run: |
           set -euo pipefail
 
-          if [ "$PROD_DEPLOYMENT_PHASE" != "bootstrap" ]; then
-            echo "PROD maintenance verification is not implemented yet!"
+          if [ "$PROD_DEPLOYMENT_PHASE" != "maintenance" ]; then
+            echo "Unexpected PROD deployment phase!"
             exit 1
           fi
 
           expected_job_name="library-loan-processing"
+
           jobs_file="$RUNNER_TEMP/prod-existing-jobs.json"
+          summary_file="$RUNNER_TEMP/prod-existing-summary.json"
 
           databricks jobs list \
             --name "$expected_job_name" \
@@ -572,19 +575,41 @@ jobs:
             -o json \
             > "$jobs_file"
 
-          if ! jq -e -s '
-            length == 1 and
-            (.[0] |
-              type == "array" and
-              length == 0
-            )
-          ' "$jobs_file" > /dev/null; then
+          if ! jq -e -s \
+            --arg job_id "$EXPECTED_PROD_JOB_ID" \
+            '
+              length == 1 and
+              (.[0] |
+                type == "array" and
+                length == 1 and
+                (.[0].job_id | tostring) == $job_id
+              )
+            ' "$jobs_file" > /dev/null; then
 
-            echo "Conflicting PROD Job or unexpected API response!"
+            echo "Unexpected or conflicting PROD Jobs!"
             exit 1
           fi
 
-          echo "No conflicting PROD Jobs found"
+          databricks bundle summary \
+            -t prod \
+            --force-pull \
+            -o json \
+            > "$summary_file"
+
+          if ! jq -e \
+            --arg job_id "$EXPECTED_PROD_JOB_ID" \
+            '
+              (.resources.jobs.library_job.id | tostring)
+              == $job_id
+            ' "$summary_file" > /dev/null; then
+
+            echo "Unexpected existing PROD Bundle binding!"
+            exit 1
+          fi
+
+          echo "Existing PROD Job verified successfully"
+          echo "Existing PROD Bundle binding verified successfully"
+          echo "Expected PROD Job ID: $EXPECTED_PROD_JOB_ID"
 
       - name: Verify authorized PROD plan integrity
         env:
@@ -690,3 +715,185 @@ jobs:
             --auto-approve
 
           echo "PROD Bundle deployment completed successfully"
+
+      - name: Verify deployed PROD Bundle binding
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          summary_file="$RUNNER_TEMP/prod-deployed-summary.json"
+
+          databricks bundle summary \
+            -t prod \
+            --force-pull \
+            -o json \
+            > "$summary_file"
+
+          if ! jq -e \
+            --arg job_id "$EXPECTED_PROD_JOB_ID" \
+            '
+              (.resources.jobs.library_job.id | tostring)
+              == $job_id
+            ' "$summary_file" > /dev/null; then
+
+            echo "Unexpected PROD Bundle Job binding!"
+            exit 1
+          fi
+
+          echo "PROD Bundle binding verified successfully"
+          echo "Deployed PROD Job ID: $EXPECTED_PROD_JOB_ID"
+
+      - name: Verify deployed PROD Job configuration
+        id: verify-prod-job
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          job_file="$RUNNER_TEMP/prod-deployed-job.json"
+
+          databricks jobs get \
+            "$EXPECTED_PROD_JOB_ID" \
+            -t prod \
+            -o json \
+            > "$job_file"
+
+          if ! jq -e \
+            --arg job_id "$EXPECTED_PROD_JOB_ID" \
+            --arg principal "$DATABRICKS_CLIENT_ID" \
+            '
+              (.job_id | tostring) == $job_id and
+              .settings.name == "library-loan-processing" and
+              .run_as_user_name == $principal and
+              (.settings.tasks | length) == 1 and
+              .settings.tasks[0].task_key == "process_loans" and
+              (.settings.tasks[0].notebook_task | type) == "object"
+            ' "$job_file" > /dev/null; then
+
+            echo "Unexpected PROD Job configuration!"
+            exit 1
+          fi
+
+          echo "PROD Job configuration verified successfully"
+
+          echo "job_id=$EXPECTED_PROD_JOB_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Verify deployed PROD Job ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          permissions_file="$RUNNER_TEMP/prod-job-permissions.json"
+
+          databricks jobs get-permissions \
+            "$EXPECTED_PROD_JOB_ID" \
+            -t prod \
+            -o json \
+            > "$permissions_file"
+
+          if ! jq -e \
+            --arg principal "$DATABRICKS_CLIENT_ID" \
+            '
+              any(
+                .access_control_list[]?;
+                .service_principal_name == $principal and
+                any(
+                  .all_permissions[]?;
+                  .permission_level == "IS_OWNER"
+                )
+              )
+            ' "$permissions_file" > /dev/null; then
+
+            echo "Unexpected PROD Job owner!"
+            exit 1
+          fi
+
+          echo "PROD Job ownership verified successfully"
+
+      - name: Generate PROD deployment evidence
+        env:
+          DEV_RUN_ID: ${{ inputs.dev_run_id }}
+          DEV_RUN_ATTEMPT: ${{ needs.verify-dev.outputs.dev_run_attempt }}
+          DEV_ARTIFACT_ID: ${{ needs.verify-dev.outputs.artifact_id }}
+          DEV_ARTIFACT_DIGEST: ${{ needs.verify-dev.outputs.artifact_digest }}
+          PLAN_DIGEST: ${{ steps.verify-prod-plan.outputs.plan_digest }}
+          VERIFIED_PROD_JOB_ID: ${{ steps.verify-prod-job.outputs.job_id }}
+
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          evidence_file="$RUNNER_TEMP/prod-deployment.json"
+
+          checked_out_sha="$(git rev-parse HEAD)"
+
+          if [ "$checked_out_sha" != "$APPROVED_SHA" ]; then
+            echo "Unexpected deployed commit SHA!"
+            exit 1
+          fi
+
+          if [ "$VERIFIED_PROD_JOB_ID" != "$EXPECTED_PROD_JOB_ID" ]; then
+            echo "Unexpected verified PROD Job ID!"
+            exit 1
+          fi
+
+          jq -n \
+            --arg environment "prod" \
+            --arg commit_sha "$APPROVED_SHA" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
+            --arg dev_run_id "$DEV_RUN_ID" \
+            --arg dev_run_attempt "$DEV_RUN_ATTEMPT" \
+            --arg dev_artifact_id "$DEV_ARTIFACT_ID" \
+            --arg dev_artifact_digest "$DEV_ARTIFACT_DIGEST" \
+            --arg deployment_phase "$PROD_DEPLOYMENT_PHASE" \
+            --arg deployment_status "success" \
+            --arg plan_digest "$PLAN_DIGEST" \
+            --argjson databricks_job_id "$VERIFIED_PROD_JOB_ID" \
+            '{
+              environment: $environment,
+              commit_sha: $commit_sha,
+              run_id: $run_id,
+              run_attempt: $run_attempt,
+              dev_run_id: $dev_run_id,
+              dev_run_attempt: $dev_run_attempt,
+              dev_artifact_id: $dev_artifact_id,
+              dev_artifact_digest: $dev_artifact_digest,
+              deployment_phase: $deployment_phase,
+              deployment_status: $deployment_status,
+              plan_digest: $plan_digest,
+              databricks_job_id: $databricks_job_id
+            }' > "$evidence_file"
+
+          if ! jq -e '
+            .environment == "prod" and
+            (.commit_sha | test("^[0-9a-f]{40}$")) and
+            (.run_id | test("^[1-9][0-9]*$")) and
+            (.run_attempt | test("^[1-9][0-9]*$")) and
+            (.dev_run_id | test("^[1-9][0-9]*$")) and
+            (.dev_run_attempt | test("^[1-9][0-9]*$")) and
+            (.dev_artifact_id | test("^[1-9][0-9]*$")) and
+            (.dev_artifact_digest | test("^sha256:[0-9a-f]{64}$")) and
+            (
+              .deployment_phase == "bootstrap" or
+              .deployment_phase == "maintenance"
+            ) and
+            .deployment_status == "success" and
+            (.plan_digest | test("^[0-9a-f]{64}$")) and
+            (.databricks_job_id | type == "number" and . > 0)
+          ' "$evidence_file" > /dev/null; then
+
+            echo "Invalid PROD deployment evidence!"
+            exit 1
+          fi
+
+          echo "PROD deployment evidence generated successfully"
+
+          cat "$evidence_file"
+
+      - name: Upload PROD deployment evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: prod-deployment-evidence
+          path: ${{ runner.temp }}/prod-deployment.json
+          if-no-files-found: error
+          retention-days: 30
