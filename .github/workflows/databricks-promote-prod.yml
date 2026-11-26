@@ -504,6 +504,8 @@ jobs:
           echo "PROD Bundle planning completed successfully"
 
       - name: Verify PROD deployment plan
+        id: verify-prod-plan
+
         shell: bash
         run: |
           set -euo pipefail
@@ -540,6 +542,17 @@ jobs:
           echo "PROD deployment plan verified successfully"
           echo "Deployment phase: $PROD_DEPLOYMENT_PHASE"
 
+          plan_digest="$(sha256sum "$plan_file" | cut -d ' ' -f 1)"
+
+          if [[ ! "$plan_digest" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Invalid PROD deployment plan digest!"
+            exit 1
+          fi
+
+          echo "Authorized plan SHA-256: $plan_digest"
+
+          echo "plan_digest=$plan_digest" >> "$GITHUB_OUTPUT"
+
       - name: Verify PROD Job conflicts
         shell: bash
         run: |
@@ -572,3 +585,68 @@ jobs:
           fi
 
           echo "No conflicting PROD Jobs found"
+
+      - name: Verify authorized PROD plan integrity
+        env:
+          EXPECTED_PLAN_DIGEST: ${{ steps.verify-prod-plan.outputs.plan_digest }}
+
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          plan_file="$RUNNER_TEMP/prod-bundle-plan.json"
+
+          if [ ! -s "$plan_file" ]; then
+            echo "PROD deployment plan is missing or empty!"
+            exit 1
+          fi
+
+          if [[ ! "$EXPECTED_PLAN_DIGEST" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Invalid authorized PROD plan digest!"
+            exit 1
+          fi
+
+          actual_plan_digest="$(
+            sha256sum "$plan_file" | cut -d ' ' -f 1
+          )"
+
+          echo "Expected plan digest: $EXPECTED_PLAN_DIGEST"
+          echo "Actual plan digest:   $actual_plan_digest"
+
+          if [ "$actual_plan_digest" != "$EXPECTED_PLAN_DIGEST" ]; then
+            echo "PROD deployment blocked: plan integrity mismatch!"
+            exit 1
+          fi
+
+          echo "Authorized PROD plan integrity verified successfully"
+
+      - name: Final verification of approved PROD commit
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          checked_out_sha="$(git rev-parse HEAD)"
+
+          current_main_sha="$(
+            git ls-remote origin refs/heads/main | cut -f1
+          )"
+
+          echo "Approved SHA:     $APPROVED_SHA"
+          echo "Checked-out SHA:  $checked_out_sha"
+          echo "Workflow SHA:     $GITHUB_SHA"
+          echo "Current main SHA: $current_main_sha"
+
+          if [[ ! "$APPROVED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid approved SHA!"
+            exit 1
+          fi
+
+          if [ "$checked_out_sha" != "$APPROVED_SHA" ] ||
+             [ "$GITHUB_SHA" != "$APPROVED_SHA" ] ||
+             [ "$current_main_sha" != "$APPROVED_SHA" ]; then
+
+            echo "PROD deployment blocked: final SHA mismatch!"
+            exit 1
+          fi
+
+          echo "Final PROD commit verification completed successfully"
