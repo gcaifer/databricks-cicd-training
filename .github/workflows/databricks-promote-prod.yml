@@ -320,6 +320,7 @@ jobs:
       DATABRICKS_AUTH_TYPE: github-oidc
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+      PROD_DEPLOYMENT_PHASE: bootstrap
 
     steps:
       - name: Verify approved SHA
@@ -503,9 +504,6 @@ jobs:
           echo "PROD Bundle planning completed successfully"
 
       - name: Verify PROD deployment plan
-        env:
-          PROD_DEPLOYMENT_PHASE: bootstrap
-
         shell: bash
         run: |
           set -euo pipefail
@@ -541,3 +539,36 @@ jobs:
 
           echo "PROD deployment plan verified successfully"
           echo "Deployment phase: $PROD_DEPLOYMENT_PHASE"
+
+      - name: Verify PROD Job conflicts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "$PROD_DEPLOYMENT_PHASE" != "bootstrap" ]; then
+            echo "PROD maintenance verification is not implemented yet!"
+            exit 1
+          fi
+
+          expected_job_name="library-loan-processing"
+          jobs_file="$RUNNER_TEMP/prod-existing-jobs.json"
+
+          databricks jobs list \
+            --name "$expected_job_name" \
+            -t prod \
+            -o json \
+            > "$jobs_file"
+
+          if ! jq -e -s '
+            length == 1 and
+            (.[0] |
+              type == "array" and
+              length == 0
+            )
+          ' "$jobs_file" > /dev/null; then
+
+            echo "Conflicting PROD Job or unexpected API response!"
+            exit 1
+          fi
+
+          echo "No conflicting PROD Jobs found"
