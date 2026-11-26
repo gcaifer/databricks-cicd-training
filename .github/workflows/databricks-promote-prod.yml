@@ -303,6 +303,10 @@ jobs:
     runs-on: ubuntu-latest
     environment: prod
 
+    concurrency:
+      group: databricks-deploy-prod
+      cancel-in-progress: false
+
     permissions:
       contents: read
 
@@ -353,3 +357,10 @@ jobs:
           fi
 
           echo "Approved PROD commit verified successfully"
+
+      - name: Simulate deployment duration
+        shell: bash
+        run: |
+          echo "Starting simulated deployment"
+          sleep 120
+          echo "Simulated deployment completed"
