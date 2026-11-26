@@ -23,6 +23,9 @@ jobs:
 
     outputs:
       approved_sha: ${{ steps.validate-evidence.outputs.approved_sha }}
+      dev_run_attempt: ${{ steps.verify-run.outputs.run_attempt }}
+      artifact_id: ${{ steps.locate-evidence.outputs.artifact_id }}
+      artifact_digest: ${{ steps.locate-evidence.outputs.artifact_digest }}
 
     permissions:
       actions: read
@@ -309,6 +312,7 @@ jobs:
 
     permissions:
       contents: read
+      actions: read
 
     env:
       APPROVED_SHA: ${{ needs.verify-dev.outputs.approved_sha }}
@@ -358,9 +362,56 @@ jobs:
 
           echo "Approved PROD commit verified successfully"
 
-      - name: Simulate deployment duration
+      - name: Revalidate DEV deployment evidence
+
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEV_RUN_ID: ${{ inputs.dev_run_id }}
+          EXPECTED_RUN_ATTEMPT: ${{ needs.verify-dev.outputs.dev_run_attempt }}
+          ARTIFACT_ID: ${{ needs.verify-dev.outputs.artifact_id }}
+          EXPECTED_DIGEST: ${{ needs.verify-dev.outputs.artifact_digest }}
+
         shell: bash
         run: |
-          echo "Starting simulated deployment"
-          sleep 120
-          echo "Simulated deployment completed"
+          set -euo pipefail
+
+          gh api \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$DEV_RUN_ID" \
+            > dev-run-revalidation.json
+
+          if ! jq -e \
+            --arg run_id "$DEV_RUN_ID" \
+            --arg run_attempt "$EXPECTED_RUN_ATTEMPT" \
+            '
+              (.id | tostring) == $run_id and
+              (.run_attempt | tostring) == $run_attempt and
+              .status == "completed" and
+              .conclusion == "success"
+            ' dev-run-revalidation.json > /dev/null; then
+
+            echo "DEV workflow run is no longer eligible"
+            exit 1
+          fi
+
+          gh api \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" \
+            > dev-artifact-revalidation.json
+
+          if ! jq -e \
+            --arg artifact_id "$ARTIFACT_ID" \
+            --arg run_id "$DEV_RUN_ID" \
+            --arg digest "$EXPECTED_DIGEST" \
+            '
+              (.id | tostring) == $artifact_id and
+              (.workflow_run.id | tostring) == $run_id and
+              .name == "dev-deployment-evidence" and
+              .expired == false and
+              .size_in_bytes > 0 and
+              .digest == $digest
+            ' dev-artifact-revalidation.json > /dev/null; then
+
+            echo "DEV deployment evidence is no longer valid"
+            exit 1
+          fi
+
+          echo "DEV deployment evidence revalidated successfully"
