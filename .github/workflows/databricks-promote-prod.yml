@@ -313,9 +313,13 @@ jobs:
     permissions:
       contents: read
       actions: read
+      id-token: write
 
     env:
       APPROVED_SHA: ${{ needs.verify-dev.outputs.approved_sha }}
+      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
 
     steps:
       - name: Verify approved SHA
@@ -375,9 +379,12 @@ jobs:
         run: |
           set -euo pipefail
 
+          run_file="$RUNNER_TEMP/dev-run-revalidation.json"
+          artifact_file="$RUNNER_TEMP/dev-artifact-revalidation.json"
+
           gh api \
             "repos/$GITHUB_REPOSITORY/actions/runs/$DEV_RUN_ID" \
-            > dev-run-revalidation.json
+            > "$run_file"
 
           if ! jq -e \
             --arg run_id "$DEV_RUN_ID" \
@@ -387,7 +394,7 @@ jobs:
               (.run_attempt | tostring) == $run_attempt and
               .status == "completed" and
               .conclusion == "success"
-            ' dev-run-revalidation.json > /dev/null; then
+            ' "$run_file" > /dev/null; then
 
             echo "DEV workflow run is no longer eligible"
             exit 1
@@ -395,7 +402,7 @@ jobs:
 
           gh api \
             "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" \
-            > dev-artifact-revalidation.json
+            > "$artifact_file"
 
           if ! jq -e \
             --arg artifact_id "$ARTIFACT_ID" \
@@ -408,10 +415,80 @@ jobs:
               .expired == false and
               .size_in_bytes > 0 and
               .digest == $digest
-            ' dev-artifact-revalidation.json > /dev/null; then
+            ' "$artifact_file" > /dev/null; then
 
             echo "DEV deployment evidence is no longer valid"
             exit 1
           fi
 
           echo "DEV deployment evidence revalidated successfully"
+
+      - name: Verify PROD authentication configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "$DATABRICKS_HOST" != "https://dbc-bfd5635e-3885.cloud.databricks.com" ]; then
+            echo "Incorrect PROD workspace!"
+            exit 1
+          fi
+
+          if [ "$DATABRICKS_CLIENT_ID" != "955ab031-e401-40f1-84a4-aa24ea11d66a" ]; then
+            echo "Incorrect PROD Service Principal!"
+            exit 1
+          fi
+
+          echo "PROD authentication configuration verified"
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+        with:
+          version: 1.26.0
+
+      - name: Verify authenticated PROD identity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          identity_file="$RUNNER_TEMP/prod-identity.json"
+
+          databricks current-user me -t prod -o json \
+            > "$identity_file"
+
+          if ! jq -e '
+            .active == true and
+            .displayName == "sp-library-cicd-prod"
+          ' "$identity_file" > /dev/null; then
+
+            echo "Unexpected PROD authenticated identity!"
+            exit 1
+          fi
+
+          echo "PROD Service Principal authenticated successfully"
+
+      - name: Validate Bundle PROD
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          databricks bundle validate -t prod
+
+          echo "PROD Bundle validation completed successfully"
+
+      - name: Inspect PROD Bundle state
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          databricks bundle summary -t prod |
+            tee "$RUNNER_TEMP/prod-bundle-summary.txt"
+
+      - name: Plan Bundle PROD
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          databricks bundle plan -t prod |
+            tee "$RUNNER_TEMP/prod-bundle-plan.txt"
+
+          echo "PROD Bundle planning completed successfully"
