@@ -40,7 +40,7 @@ jobs:
 
     steps:
       - name: Checkout CI-approved commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
@@ -83,7 +83,7 @@ jobs:
 
     steps:
       - name: Checkout CI-approved commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
@@ -111,7 +111,9 @@ jobs:
           echo "Approved commit is current main: $APPROVED_SHA"
 
       - name: Install Databricks CLI
-        uses: databricks/setup-cli@main
+        uses: databricks/setup-cli@e1dad86b08f6ea07707aea128ec4bfa76af8db55 # Pinned installer
+        with:
+          version: 1.26.0
 
       - name: Verify authenticated identity
         run: databricks current-user me
@@ -208,7 +210,7 @@ jobs:
           echo "DEV deployment evidence generated successfully"
 
       - name: Upload DEV deployment evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: dev-deployment-evidence
           path: dev-deployment.json
@@ -234,10 +236,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install Databricks CLI
-        uses: databricks/setup-cli@main
+        uses: databricks/setup-cli@e1dad86b08f6ea07707aea128ec4bfa76af8db55 # Pinned installer
+        with:
+          version: 1.26.0
 
       - name: Verify authenticated identity
         run: databricks current-user me
