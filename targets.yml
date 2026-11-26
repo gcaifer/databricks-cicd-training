@@ -15,6 +15,7 @@ targets:
 
     workspace:
       host: https://dbc-bfd5635e-3885.cloud.databricks.com
+      root_path: /Workspace/Users/955ab031-e401-40f1-84a4-aa24ea11d66a/.bundle/${bundle.name}/${bundle.target}
 
     run_as:
       service_principal_name: "955ab031-e401-40f1-84a4-aa24ea11d66a"
