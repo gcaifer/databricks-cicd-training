@@ -340,7 +340,7 @@ jobs:
           echo "Approved SHA received: $APPROVED_SHA"
 
       - name: Checkout approved commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ needs.verify-dev.outputs.approved_sha }}
           persist-credentials: false
@@ -441,7 +441,7 @@ jobs:
           echo "PROD authentication configuration verified"
 
       - name: Install Databricks CLI
-        uses: databricks/setup-cli@main
+        uses: databricks/setup-cli@e1dad86b08f6ea07707aea128ec4bfa76af8db55 # Pinned installer
         with:
           version: 1.26.0
 
